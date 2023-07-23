@@ -1,0 +1,286 @@
+-- Set the search_path to mimic_iii
+SET search_path TO mimic_iii;
+
+---------------------------------------------------------------------
+
+-- Drop the public.full_criteria table if it already exists
+DROP TABLE IF EXISTS public.full_criteria;
+
+-- Create a new table public.full_criteria using the specified fields and joins
+CREATE TABLE public.full_criteria AS
+SELECT 
+    P.SUBJECT_ID, 
+    A.HADM_ID,
+	I.ICUSTAY_ID,
+    D.ICD9_CODE, 
+    ICD.LONG_TITLE AS ICD9_CODE_DESCRIPTION,
+	ROUND(EXTRACT(EPOCH FROM (I.intime - A.admittime))) AS time_from_er_to_icu,
+    A.ADMISSION_TYPE, 
+    (EXTRACT('YEAR' FROM AGE(A.ADMITTIME, P.DOB))) AS AGE_AT_ADMISSION
+-- Inner joins are used to combine tables PATIENTS, ADMISSIONS, ICUSTAYS, DIAGNOSES_ICD, D_ICD_DIAGNOSES 
+-- according to the common fields (SUBJECT_ID, HADM_ID, and ICD9_CODE)
+FROM 
+    mimiciii.PATIENTS P
+INNER JOIN 
+    mimiciii.ADMISSIONS A ON P.SUBJECT_ID = A.SUBJECT_ID
+INNER JOIN 
+    mimiciii.ICUSTAYS I ON A.SUBJECT_ID = I.SUBJECT_ID AND A.HADM_ID = I.HADM_ID
+INNER JOIN 
+    mimiciii.DIAGNOSES_ICD D ON A.SUBJECT_ID = D.SUBJECT_ID AND A.HADM_ID = D.HADM_ID
+INNER JOIN 
+    mimiciii.D_ICD_DIAGNOSES ICD ON D.ICD9_CODE = ICD.ICD9_CODE
+-- Filtering patients between the ages of 20 and 80, or over 80, and who have an ADMISSION_TYPE of 'EMERGENCY' or 'URGENT'
+-- Additionally, filters for specific ICD9 codes and excludes codes related to vertebral and precerebral conditions
+WHERE 
+    ((EXTRACT('YEAR' FROM AGE(A.ADMITTIME, P.DOB))) BETWEEN 20 AND 80 OR (EXTRACT('YEAR' FROM AGE(A.ADMITTIME, P.DOB))) > 80)
+    AND 
+    A.ADMISSION_TYPE IN ('EMERGENCY', 'URGENT')
+    AND 
+    D.ICD9_CODE BETWEEN '430' AND '438'
+	AND 
+    D.ICD9_CODE NOT LIKE '435%'
+    AND 
+    ICD.LONG_TITLE NOT LIKE '%vertebral%'
+    AND 
+    ICD.LONG_TITLE NOT LIKE '%precerebral%';
+
+-- Create a table with each patient's first ICU stay
+CREATE TABLE first_icu_stay AS 
+  SELECT 
+      SUBJECT_ID, 
+      HADM_ID, 
+      MIN(ICUSTAY_ID) AS ICUSTAY_ID
+  FROM 
+      public.full_criteria 
+  GROUP BY 
+      SUBJECT_ID, 
+      HADM_ID;
+
+-- Drop the public.full_criteria_demographic table if it already exists
+DROP TABLE IF EXISTS public.full_criteria_demographic;
+
+-- Create a new table public.full_criteria_demographic with the selected fields
+CREATE TABLE public.full_criteria_demographic AS 
+SELECT DISTINCT FC.SUBJECT_ID,
+    FC.HADM_ID,
+    FC.ICUSTAY_ID,
+	FC.ICD9_CODE,
+	FC.ICD9_CODE_DESCRIPTION,
+	FC.time_from_er_to_icu,
+	FC.ADMISSION_TYPE,
+	CASE
+        WHEN proc.hadm_id IS NOT NULL THEN '1'
+        ELSE '0'
+    END AS ventilator_status,
+-- Organize the age into age groups
+    CASE
+        WHEN FC.AGE_AT_ADMISSION < 30 THEN '20-29'
+        WHEN FC.AGE_AT_ADMISSION < 40 THEN '30-39'
+        WHEN FC.AGE_AT_ADMISSION < 50 THEN '40-49'
+        WHEN FC.AGE_AT_ADMISSION < 60 THEN '50-59'
+        WHEN FC.AGE_AT_ADMISSION < 70 THEN '60-69'
+        WHEN FC.AGE_AT_ADMISSION < 80 THEN '70-79'
+        ELSE 'over 80'
+    END AS AGE_GROUP,
+-- Mark if there was a previous stroke admission
+    CASE 
+        WHEN EXISTS (SELECT 1 FROM public.full_criteria WHERE SUBJECT_ID = FC.SUBJECT_ID AND HADM_ID < FC.HADM_ID) THEN '1' 
+        ELSE '0' 
+    END AS PREVIOUS_STROKE_ADMISSION,
+-- Collect demographic information including gender, ethnicity, insurance, mortality, and ICU length of stay
+    P.GENDER,
+    CASE 
+        WHEN A.ETHNICITY IN ('WHITE', 'WHITE - RUSSIAN', 'WHITE - OTHER EUROPEAN', 'WHITE - BRAZILIAN', 'WHITE - EASTERN EUROPEAN') THEN 'white'
+        WHEN A.ETHNICITY IN ('BLACK/AFRICAN AMERICAN', 'BLACK/CAPE VERDEAN', 'BLACK/HAITIAN', 'BLACK/AFRICAN', 'CARIBBEAN ISLAND') THEN 'black'
+        WHEN A.ETHNICITY IN ('HISPANIC OR LATINO', 'HISPANIC/LATINO - PUERTO RICAN', 'HISPANIC/LATINO - DOMINICAN', 'HISPANIC/LATINO - GUATEMALAN', 'HISPANIC/LATINO - CUBAN', 'HISPANIC/LATINO - SALVADORAN', 'HISPANIC/LATINO - CENTRAL AMERICAN (OTHER)', 'HISPANIC/LATINO - MEXICAN', 'HISPANIC/LATINO - COLOMBIAN', 'HISPANIC/LATINO - HONDURAN') THEN 'hispanic'
+        WHEN A.ETHNICITY IN ('ASIAN', 'ASIAN - CHINESE', 'ASIAN - ASIAN INDIAN', 'ASIAN - VIETNAMESE', 'ASIAN - FILIPINO', 'ASIAN - CAMBODIAN', 'ASIAN - OTHER', 'ASIAN - KOREAN', 'ASIAN - JAPANESE', 'ASIAN - THAI') THEN 'asian'
+        WHEN A.ETHNICITY IN ('AMERICAN INDIAN/ALASKA NATIVE', 'AMERICAN INDIAN/ALASKA NATIVE FEDERALLY RECOGNIZED TRIBE') THEN 'native'
+        WHEN A.ETHNICITY IN ('UNKNOWN/NOT SPECIFIED', 'UNABLE TO OBTAIN', 'PATIENT DECLINED TO ANSWER') THEN 'unknown'
+        ELSE 'other' 
+    END AS ETHNICITY_GROUPED,
+    A.HOSPITAL_EXPIRE_FLAG AS MORTALITY,
+    A.INSURANCE,
+    ROUND(I.LOS) AS ICU_LENGTH_OF_STAY
+-- The data is joined based on common fields (SUBJECT_ID, HADM_ID, and ICUSTAY_ID)
+FROM 
+    public.full_criteria FC
+JOIN
+    public.first_icu_stay FIS ON FC.HADM_ID = FIS.HADM_ID AND FC
+-- Left joins are used to combine the previous table with additional data from PATIENTS, ADMISSIONS, ICUSTAYS, and procedures_icd based on common fields (SUBJECT_ID, HADM_ID)
+LEFT JOIN 
+    mimiciii.PATIENTS P ON FC.SUBJECT_ID = P.SUBJECT_ID
+LEFT JOIN 
+    mimiciii.ADMISSIONS A ON FC.SUBJECT_ID = A.SUBJECT_ID AND FC.HADM_ID = A.HADM_ID
+LEFT JOIN 
+    mimiciii.ICUSTAYS I ON FC.SUBJECT_ID = I.SUBJECT_ID AND FC.HADM_ID = I.HADM_ID
+-- This subquery identifies all unique admissions which involved a procedure that starts with '96'
+LEFT JOIN (SELECT DISTINCT hadm_id
+    FROM mimiciii.procedures_icd
+    WHERE icd9_code LIKE '96%') proc ON a.hadm_id = proc.hadm_id;
+
+
+-- Drop the public.ranked_CBC table and public.lab_CBC table if they already exist
+DROP TABLE IF EXISTS public.ranked_CBC;
+DROP TABLE IF EXISTS public.lab_CBC;
+
+-- Create a new table public.ranked_CBC that ranks lab tests by the order they were done in each admission
+CREATE TABLE public.ranked_CBC AS 
+    SELECT 
+        FIS.SUBJECT_ID,
+        FIS.HADM_ID,
+        DL.label AS lab_name,
+	    DL.ITEMID,
+        LB.valuenum AS value,
+        LB.valueuom AS unit,
+        LB.CHARTTIME AS test_time,
+        -- Rank the lab tests by the order they were done in each admission
+        ROW_NUMBER() OVER (PARTITION BY FIS.SUBJECT_ID, FIS.HADM_ID, DL.label ORDER BY DL.ITEMID ASC) as rn
+    FROM 
+        public.first_icu_stay FIS
+    -- Join lab events with the first ICU stay for each admission
+    JOIN mimiciii.LABEVENTS LB ON FIS.SUBJECT_ID = LB.SUBJECT_ID AND FIS.HADM_ID = LB.HADM_ID
+    -- Match lab events with their names
+    JOIN mimiciii.d_labitems DL ON LB.ITEMID = DL.ITEMID
+    -- Filter for specific lab tests
+    WHERE 
+        LB.itemid IN (51221, 51222, 51265, 51301, 51244, 51256, 51275, 51237, 51274)
+;
+
+-- Create a new table public.lab_CBC that contains only the first occurrence of each lab test in each admission
+CREATE TABLE public.lab_CBC AS 
+SELECT 
+    SUBJECT_ID,
+    HADM_ID,
+    lab_name,
+    ITEMID,
+    value,
+    unit,
+    -- Collect the time of the first test
+    MIN(test_time) AS first_test_time
+FROM 
+    public.ranked_cbc
+-- Filter for only the first occurrence of each lab test in each admission
+WHERE 
+    rn = 1
+GROUP BY 
+    SUBJECT_ID,
+    HADM_ID,
+    lab_name,
+    ITEMID,
+    value,
+    unit
+;
+
+-- Drop the column first_test_time from public.lab_CBC
+ALTER TABLE public.lab_cbc 
+DROP COLUMN first_test_time;
+
+-- Repeat the process of creating the tables public.ranked_CBC and public.lab_CBC for different sets of lab tests
+-- Drop the public.ranked_chem table and public.lab_chem table if they already exist
+DROP TABLE IF EXISTS public.ranked_chem;
+DROP TABLE IF EXISTS public.lab_chem;
+
+-- Create a new table public.ranked_chem that ranks lab tests by the order they were done in each admission
+CREATE TABLE public.ranked_chem AS 
+SELECT 
+        FIS.SUBJECT_ID,
+        FIS.HADM_ID,
+		FIS.ICUSTAY_ID,
+        DI.label AS item_name,
+	    DI.ITEMID,
+        CH.valuenum AS value,
+        CH.CHARTTIME AS test_time,
+        -- Rank the lab tests by the order they were done in each admission
+        ROW_NUMBER() OVER (PARTITION BY FIS.SUBJECT_ID, FIS.HADM_ID, DI.label ORDER BY DI.ITEMID ASC) as rn
+    FROM 
+        public.first_icu_stay FIS
+    -- Join chart events with the first ICU stay for each admission
+    JOIN mimiciii.CHARTEVENTS CH ON FIS.SUBJECT_ID = CH.SUBJECT_ID AND FIS.HADM_ID = CH.HADM_ID
+    -- Match chart events with their names
+    JOIN mimiciii.d_items DI ON CH.ITEMID = DI.ITEMID
+    -- Filter for specific chart events
+    WHERE 
+        CH.itemid IN (220739, 223901, 223900, 223762, 220045, 220179, 220180, 224422, 220277, 
+					  220277, 226512)
+;
+
+-- Create a new table public.lab_chem that contains only the first occurrence of each lab test in each admission
+CREATE TABLE public.lab_chem AS 
+SELECT 
+    SUBJECT_ID,
+    HADM_ID,
+    lab_name,
+    ITEMID,
+    value,
+    unit,
+    -- Collect the time of the first test
+    MIN(test_time) AS first_test_time
+FROM 
+    public.ranked_chem
+-- Filter for only the first occurrence of each lab test in each admission
+WHERE 
+    rn = 1
+GROUP BY 
+    SUBJECT_ID,
+    HADM_ID,
+    lab_name,
+    ITEMID,
+    value,
+    unit
+;
+
+
+-- Drop the public.ranked_clinical table and public.item_clinical table if they already exist
+DROP TABLE IF EXISTS public.ranked_clinical;
+DROP TABLE IF EXISTS public.item_clinical;
+
+-- Create a new table public.ranked_clinical that ranks lab tests by the order they were done in each admission
+CREATE TABLE public.ranked_clinical AS 
+SELECT 
+        FIS.SUBJECT_ID,
+        FIS.HADM_ID,
+		FIS.ICUSTAY_ID,
+        DI.label AS item_name,
+	    DI.ITEMID,
+        CH.valuenum AS value,
+        CH.CHARTTIME AS test_time,
+        -- Rank the lab tests by the order they were done in each admission
+        ROW_NUMBER() OVER (PARTITION BY FIS.SUBJECT_ID, FIS.HADM_ID, DI.label ORDER BY DI.ITEMID ASC) as rn
+    FROM 
+        public.first_icu_stay FIS
+    -- Join chart events with the first ICU stay for each admission
+    JOIN mimiciii.CHARTEVENTS CH ON FIS.SUBJECT_ID = CH.SUBJECT_ID AND FIS.HADM_ID = CH.HADM_ID
+    -- Match chart events with their names
+    JOIN mimiciii.d_items DI ON CH.ITEMID = DI.ITEMID
+    -- Filter for specific chart events
+    WHERE 
+        CH.itemid IN (220739, 223901, 223900, 223762, 220045, 220179, 220180, 224422, 220277, 
+					  220277, 226512)
+;
+
+
+-- Create a new table public.item_clinical that contains only the first occurrence of each lab test in each admission
+CREATE TABLE public.item_clininal AS 
+SELECT 
+    SUBJECT_ID,
+    HADM_ID,
+    lab_name,
+    ITEMID,
+    value,
+    unit,
+    -- Collect the time of the first test
+    MIN(test_time) AS first_test_time
+FROM 
+    public.ranked_clinical
+-- Filter for only the first occurrence of each lab test in each admission
+WHERE 
+    rn = 1
+GROUP BY 
+    SUBJECT_ID,
+    HADM_ID,
+    lab_name,
+    ITEMID,
+    value,
+    unit
+;
+
