@@ -1,4 +1,5 @@
 Description
+
 This repository contains a series of SQL commands designed to create new data tables for a hypothetical research study using the MIMIC-III (Medical Information Mart for Intensive Care III) database. The research study aims to explore patient admissions due to stroke and examine various demographic, clinical, and laboratory parameters.
 
 Prerequisites
