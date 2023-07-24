@@ -22,7 +22,7 @@ The SQL queries perform the following operations:
 
 ## Usage
 
-To use these SQL queries, you need to have access to the MIMIC-III database. Please follow the instructions in the official MIMIC-III website to gain access. After gaining access, you can run these queries in your preferred SQL environment (like PostgreSQL, MySQL, etc.).
+To use these SQL queries, you need to have access to the MIMIC-III database. Please follow the instructions in the official MIMIC-III website (https://physionet.org/content/mimiciii/1.4/) to gain access. After gaining access, you can run these queries in your preferred SQL environment (like PostgreSQL, MySQL, etc.).
 
 Please note that you may need to modify these queries according to your research question and analysis plan.
 
