@@ -1,28 +1,35 @@
-Description
+# MIMIC-III Data Processing for Stroke Analysis
 
-This repository contains a series of SQL commands designed to create new data tables for a hypothetical research study using the MIMIC-III (Medical Information Mart for Intensive Care III) database. The research study aims to explore patient admissions due to stroke and examine various demographic, clinical, and laboratory parameters.
+This repository provides the SQL queries for preprocessing the MIMIC-III database to extract relevant data for stroke analysis.
 
-Prerequisites
-Access to the MIMIC-III database: MIMIC-III (Medical Information Mart for Intensive Care III) is a large, freely available database comprising deidentified health-related data associated with over forty thousand patients who stayed in critical care units of the Beth Israel Deaconess Medical Center between 2001 and 2012. More information about obtaining access to the database can be found here: https://mimic.mit.edu/iii/gettingstarted/.
+The MIMIC-III (Medical Information Mart for Intensive Care III) database is a large, freely-available database comprising deidentified health-related data associated with over forty thousand patients who stayed in critical care units of the Beth Israel Deaconess Medical Center between 2001 and 2012.
 
-SQL environment: All commands in this repository are written in SQL, a standard language for managing and manipulating databases. Any SQL environment (e.g., MySQL, PostgreSQL, SQLite, etc.) can be used to execute these commands, provided that the MIMIC-III database has been correctly imported into this environment.
+## Data Extraction and Preprocessing
 
-Code Details
-The provided SQL code aims to create multiple tables that will streamline data extraction and analysis for the research study. The final output includes demographic information, diagnostic codes, ventilation status, age group, ethnicity, insurance type, ICU length of stay, laboratory test results, and more.
+The SQL queries perform the following operations:
 
-The code includes the following steps:
+1. Create a table (`full_criteria`) with specific columns selected from different tables in the MIMIC-III database with necessary filters applied (like age, admission type, ICD-9 code, etc.).
 
-Create a new table (full_criteria) including patients aged 20-80 admitted for stroke (ICD-9 codes between '430' and '438', excluding '435%'), excluding specific types of stroke and admission types. It also calculates the time from Emergency Room to ICU admission.
+2. Create a table (`first_icu_stay`) that contains information on the first ICU stay of each patient.
 
-Identify the first ICU stay for each patient and store it in a new table (first_icu_stay).
+3. Create a table (`full_criteria_demographic`) by joining `full_criteria` and `first_icu_stay`. This table also contains additional demographic information, such as gender, ethnicity, insurance status, ICU length of stay, etc.
 
-Create a new table (full_criteria_demographic) including demographic data and hospital admission details, as well as information about whether patients had a stroke previously, their insurance type, ventilation status, ICU length of stay, and mortality.
+4. Create a table (`ranked_CBC`) with relevant lab test results (CBC - Complete Blood Count) for the first ICU stay of each patient. This table is then used to create another table (`lab_CBC`) that contains the first test result of each lab test for each patient.
 
-Create tables (ranked_CBC and lab_CBC) including laboratory results for complete blood count (CBC).
+5. Similar to `ranked_CBC` and `lab_CBC`, tables (`ranked_chem` and `lab_chem`) are created to store relevant chemistry lab test results.
 
-Create tables (ranked_chem and lab_chem) including laboratory results for certain chemistry tests.
+6. Create a table (`ranked_clinical`) with relevant clinical item data for the first ICU stay of each patient. This table is then used to create another table (`item_clinical`) that contains the first recorded value of each clinical item for each patient.
 
-Create tables (ranked_clinical and item_clinical) including other clinical items.
+## Usage
 
-Usage
-To utilize this code, you should run the SQL commands in the same order they appear in the file. This is necessary because later commands may depend on tables created by earlier commands. If you encounter an error, ensure that you have correctly set up your environment and that all the prerequisite steps have been completed.
+To use these SQL queries, you need to have access to the MIMIC-III database. Please follow the instructions in the official MIMIC-III website to gain access. After gaining access, you can run these queries in your preferred SQL environment (like PostgreSQL, MySQL, etc.).
+
+Please note that you may need to modify these queries according to your research question and analysis plan.
+
+## Contribution
+
+Contributions to this repository are welcome. If you find any issues or have suggestions, please open an issue or a pull request.
+
+## Disclaimer
+
+The MIMIC-III data should be used responsibly. Please ensure that you have completed the required training and agreed to the data use agreement before using the data. All the information used from the MIMIC-III database is de-identified. Always follow the data use agreement while handling the MIMIC-III data.
