@@ -1,4 +1,4 @@
-# MIMIC-III Data Processing for Stroke Analysis
+# MIMIC-III Data Processing for ICU Length of Stay in Stroke Patient Analysis
 
 This repository provides the SQL queries for preprocessing the MIMIC-III database to extract relevant data for stroke analysis.
 
@@ -14,7 +14,7 @@ The SQL queries perform the following operations:
 
 3. Create a table (`full_criteria_demographic`) by joining `full_criteria` and `first_icu_stay`. This table also contains additional demographic information, such as gender, ethnicity, insurance status, ICU length of stay, etc.
 
-4. Create a table (`ranked_CBC`) with relevant lab test results (CBC - Complete Blood Count) for the first ICU stay of each patient. This table is then used to create another table (`lab_CBC`) that contains the first test result of each lab test for each patient.
+4. Create a table (`ranked_CBC`) with relevant lab test results (CBC: Complete Blood Count) for the first ICU stay of each patient. This table is then used to create another table (`lab_CBC`) that contains the first test result of each lab test for each patient.
 
 5. Similar to `ranked_CBC` and `lab_CBC`, tables (`ranked_chem` and `lab_chem`) are created to store relevant chemistry lab test results.
 
